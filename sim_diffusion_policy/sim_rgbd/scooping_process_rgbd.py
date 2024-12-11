@@ -20,6 +20,7 @@ import torchvision.transforms as transforms
 import cv2
 import transforms3d
 from dynamics_model.test_spillage import spillage_predictor
+import json
 
 class IsaacSim():
     def __init__(self):
@@ -95,12 +96,12 @@ class IsaacSim():
  
         sim_params.physx.solver_type = 1
         sim_params.physx.num_position_iterations = 4
-        sim_params.physx.num_velocity_iterations = 1
+        sim_params.physx.num_velocity_iterations = 4
 
-        sim_params.physx.friction_offset_threshold = 0.01
-        sim_params.physx.friction_correlation_distance = 5
+        sim_params.physx.friction_offset_threshold = 0.001  # lead 穿模
+        sim_params.physx.friction_correlation_distance = 0.1
         # lead lag
-        sim_params.physx.contact_offset = 0.001
+        sim_params.physx.contact_offset = 0.0001
         
         sim_params.physx.rest_offset = 0.000001
         sim_params.physx.max_depenetration_velocity = 1
@@ -151,7 +152,7 @@ class IsaacSim():
         asset_options.flip_visual_attachments = True
         asset_options.disable_gravity = True
         asset_options.vhacd_enabled = True
-        asset_options.vhacd_params.resolution = 10000000
+        asset_options.vhacd_params.resolution = 30000000
         self.franka_asset = self.gym.load_asset(self.sim, self.asset_root, asset_file_franka, asset_options)
         self.franka_dof_names = self.gym.get_asset_dof_names(self.franka_asset)
         self.num_dofs += self.gym.get_asset_dof_count(self.franka_asset)
@@ -183,9 +184,10 @@ class IsaacSim():
        
         body_shape_prop = self.gym.get_actor_rigid_shape_properties(self.env_ptr, self.franka_handle)
         for k in range(11):
-            body_shape_prop[k].thickness = 0.01
-            body_shape_prop[k].friction = 0
-            # body_shape_prop[k].rest_offset = 0.000001
+            body_shape_prop[k].thickness = 0.00001
+            body_shape_prop[k].friction = 0.001
+            body_shape_prop[k].rest_offset = 0.1
+
         
      
             
@@ -214,12 +216,34 @@ class IsaacSim():
         
 
     def create_ball(self):
-        self.ball_radius = 0.005
-        self.ball_mass = 0.0025
+       
+        # small size
+        '''
+        self.ball_radius = 0.003
+        self.ball_mass = 0.002
         # friction interval : 0 - 0.2
-        self.ball_friction = 0.1
-        self.ball_amount = 18
+        self.ball_friction = 0.05
+        self.ball_amount = 60
+        '''
+
+        # medium size
         
+        self.ball_radius = 0.005
+        self.ball_mass = 0.01
+        # friction interval : 0 - 0.2
+        self.ball_friction = 0.05
+        self.ball_amount = 15
+        
+
+        # Large size
+        '''
+        self.ball_radius = 0.02
+        self.ball_mass = 0.05
+        # friction interval : 0 - 0.2
+        self.ball_friction = 0.05
+        self.ball_amount = 1
+        '''
+             
     
         ballGenerator = BallGenerator()
         file_name = 'BallHLS.urdf'
@@ -235,7 +259,7 @@ class IsaacSim():
         body_shape_prop[0].contact_offset = 0.001   # Distance at which contacts are generated
         body_shape_prop[0].rest_offset = 0.000001      # How far objects should come to rest from the surface of this body 
         body_shape_prop[0].restitution = 0.000001     # when two objects hit or collide, the speed at which they move after the collision
-        body_shape_prop[0].thickness = 0.001       # the ratio of the final to initial velocity after the rigid body collides. 
+        body_shape_prop[0].thickness = 1       
   
         self.gym.set_actor_rigid_shape_properties(self.env_ptr, ball_handle, body_shape_prop)
         c = np.array([115, 78, 48]) / 255.0
@@ -254,7 +278,10 @@ class IsaacSim():
         ball_amount = self.ball_amount
     
         z = 0.1 + self.ball_radius
-        ran = 6
+        if self.ball_radius > 0.01 :
+            ran = 2
+        else :
+            ran  = 6
     
         while ball_amount > 0:
             y = -0.18
@@ -307,6 +334,8 @@ class IsaacSim():
         self.seg_list = []
         self.seg_pcd_list = []
         self.binary_spillage = []
+        self.total_spillage = 0
+        self.init_spillage = 0
 
         # create and populate the environments
         for i in range(num_envs):
@@ -324,8 +353,9 @@ class IsaacSim():
 
             body_shape_prop = self.gym.get_actor_rigid_shape_properties(self.env_ptr, self.bowl_1)
             # thickness(soft) = 0.0003, thickness(soft) = 0.007
-            body_shape_prop[0].thickness = 0.007      # the ratio of the final to initial velocity after the rigid body collides.(but have no idea why it will affect the contact distance) 
+            body_shape_prop[0].thickness = 0.0004      # the ratio of the final to initial velocity after the rigid body collides.(but have no idea why it will affect the contact distance) 
             body_shape_prop[0].friction = 0.001
+            body_shape_prop[0].rest_offset = 0.001
             self.gym.set_actor_rigid_shape_properties(self.env_ptr, self.bowl_1, body_shape_prop)
             
             
@@ -397,6 +427,7 @@ class IsaacSim():
     def cal_spillage_scooped(self, reset = 0):
         # reset = 1 means record init spillage in experiment setting 
         current_spillage = 0
+        spillage_amount = 0
 
         # calculate spillage and scoop amount
         for ball in self.ball_handles[0]:
@@ -407,16 +438,23 @@ class IsaacSim():
             if z < 0:
                 current_spillage += 1
         
-
-        if reset == 0:
+        if reset == 1 : 
+            self.init_spillage = current_spillage
+        
+        elif reset == 0:
             spillage_amount = current_spillage - self.pre_spillage
             if int(spillage_amount) == 0:
                 self.binary_spillage.append(0)
             else :
                 self.binary_spillage.append(1)
-
+            # print(f"spillage : {spillage_amount}")
+            
+        elif reset == 2 :
+            spillage_amount = current_spillage - self.init_spillage
+            self.total_spillage = spillage_amount
+        print(f"spillage amount : {spillage_amount}")
         self.pre_spillage = int(current_spillage)
-        
+
     
     def reset_franka(self):
         
@@ -475,11 +513,14 @@ class IsaacSim():
         eepose_array = np.array(eepose)
         seg_pcd_array = np.array(seg_pcd)
 
+        
 
         eeposes, spillage_prob = self.lfd.run_model(image_array, depth_array, eepose_array, seg_pcd_array)
   
         #offset to make spillage
-        eeposes[:, 1] += 0.005
+        eeposes[:, 1] += 0.008
+
+   
   
         return eeposes, spillage_prob
     
@@ -537,7 +578,10 @@ class IsaacSim():
                 dpose_index += 1
                 self.dof_state[:, self.franka_dof_index, 0] = self.pos_action.clone()
 
-                if dpose_index > 1000 :
+                if dpose_index > 260 :
+                    self.cal_spillage_scooped(reset = 2)
+                    print(self.total_spillage)
+                    self.write_file()
                     break
                 
                 
@@ -700,7 +744,35 @@ class IsaacSim():
         
         return new_pcd
     
-   
+    def write_file(self):
+        # Specify the file name
+        file_name = "spillage.json"
+
+        try:
+            # Read existing data from the file
+            with open(file_name, "r") as file:
+                data = json.load(file)  # Load JSON as a Python dictionary
+        except (FileNotFoundError, json.JSONDecodeError):
+            # Initialize default data if file doesn't exist or is corrupted
+            data = {
+                "Ball Radius": self.ball_radius,
+                "Ball Mass": self.ball_mass,
+                "Ball Friction": self.ball_friction,
+                "Ball Amount": self.ball_amount,
+                "Spillage": 0,
+            }
+
+        # Update the dictionary with new values
+
+        data["Spillage"] += self.total_spillage
+
+        # Write the updated dictionary back to the file
+        with open(file_name, "w") as file:
+            json.dump(data, file, indent=4)  # Use indent for pretty formatting
+
+        print(f"Updated data written to {file_name}")
+
+
 
 
 class ProbabilityVisualizer:
@@ -742,21 +814,19 @@ if __name__ == "__main__":
     prob_list = []
     gd_list = []
 
-    for i in range(1):
-        # Initialize IsaacSim
-        issac = IsaacSim()
-        # Perform the scooping process
-        prob_array, gd_spillage = issac.scooping_process()
-        # Append results
-        prob_list.append(prob_array)
-        gd_list.append(gd_spillage)
-        del prob_array, gd_spillage, issac
-        torch.cuda.empty_cache() 
-        
-    print(np.sum(gd_list, axis=0))
-    print(np.sum(prob_list, axis=0))
-    mean_prob = np.mean(np.stack(prob_list), axis=0)[:-1]
-    mean_gd = np.mean(np.stack(gd_list), axis=0)[:-1]
+    # Initialize IsaacSim
+    issac = IsaacSim()
+    # Perform the scooping process
+    prob_array, gd_spillage = issac.scooping_process()
+    # Append results
+    prob_list.append(prob_array)
+    gd_list.append(gd_spillage)
+    '''
+    
+    # print(np.sum(gd_list, axis=0))
+    # print(np.sum(prob_list, axis=0))
+    mean_prob = np.mean(np.stack(prob_list), axis=0)
+    mean_gd = np.mean(np.stack(gd_list), axis=0)
 
     # np.save('prob_array.npy', np.array(prob_array))
 
@@ -765,7 +835,6 @@ if __name__ == "__main__":
     # visualizer.animate()
 
 
-    '''
     # Create an x-axis for the number of data points
     x = np.arange(len(mean_prob))
     plt.ylim(0, 1)
@@ -779,7 +848,7 @@ if __name__ == "__main__":
     plt.ylabel('Probability')
     plt.legend()
 
-    plt.savefig("probability_chart.png", format="png", dpi=300)  # Set format and resolution (dpi)
+    # plt.savefig("probability_chart.png", format="png", dpi=300)  # Set format and resolution (dpi)
 
     # Show the plot
     plt.show()
