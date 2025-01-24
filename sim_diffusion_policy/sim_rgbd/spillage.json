@@ -1,0 +1,7 @@
+{
+    "Ball Radius": 0.003,
+    "Ball Mass": 0.003,
+    "Ball Friction": 0.05,
+    "Ball Amount": 50,
+    "Spillage": 144
+}

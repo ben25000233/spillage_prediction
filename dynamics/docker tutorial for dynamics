@@ -1,0 +1,21 @@
+#build docker image(templete)
+docker build -t grits_dynamics -f dynamics_image .
+
+#build docker container
+docker run --gpus '"device=1"' -v /home/hcis-s21/Desktop/benyang/scoop-env/dynamics:/workspace/dynamics \
+			-v /media/hcis-s21/data/benyang/all_process:/workspace/dataset \
+	-it --name spillage_training --shm-size="16g" grits_dynamics bash
+
+# install pointnet
+# cd to pointnet folder
+pip install -r requirements.txt 
+pip install -e .
+
+#del container : 
+docker rm <container_id_or_name>
+
+#del images
+docker rmi <image_id>
+
+
+
