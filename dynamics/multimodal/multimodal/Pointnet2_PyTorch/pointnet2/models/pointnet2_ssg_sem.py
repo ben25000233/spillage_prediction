@@ -49,11 +49,11 @@ class PointNet2SemSegSSG(PointNet2ClassificationSSG):
         )
 
         self.fc_layer = nn.Sequential(
-            nn.Conv1d(512, 128, kernel_size=1, bias=False),
-            nn.BatchNorm1d(128),
+            nn.Conv1d(512, 256, kernel_size=1, bias=False),
+            nn.BatchNorm1d(256),
             nn.ReLU(True),
             nn.Dropout(0.5),
-            nn.Conv1d(128, 16, kernel_size=1),
+            nn.Conv1d(256, 16, kernel_size=1),
         )
 
         '''
@@ -77,7 +77,7 @@ class PointNet2SemSegSSG(PointNet2ClassificationSSG):
 
 
     def forward(self, pointcloud):
-        r"""
+        """
             Forward pass of the network
 
             Parameters
@@ -88,25 +88,22 @@ class PointNet2SemSegSSG(PointNet2ClassificationSSG):
                 Each point in the point-cloud MUST
                 be formated as (x, y, z, features...)
         """
-  
         xyz, features = self._break_up_pc(pointcloud)
 
-        # for model in self.SA_modules:
-        #     xyz, features = model(xyz, features)
+        for model in self.SA_modules:
+            xyz, features = model(xyz, features)
 
-        # print(self.fc_layer(features).shape)
-        # return self.fc_layer(features)
+        return self.fc_layer(features)
     
 
-    
-        l_xyz, l_features = [xyz], [features]
-        for i in range(len(self.SA_modules)):
-            li_xyz, li_features = self.SA_modules[i](l_xyz[i], l_features[i])
-            l_xyz.append(li_xyz)
-            l_features.append(li_features)
+        # l_xyz, l_features = [xyz], [features]
+        # for i in range(len(self.SA_modules)):
+        #     li_xyz, li_features = self.SA_modules[i](l_xyz[i], l_features[i])
+        #     l_xyz.append(li_xyz)
+        #     l_features.append(li_features)
             
         
-        return self.fc_layer(l_features[-1])
+        # return self.fc_layer(l_features[-1])
 
 
         # for decode 
