@@ -29,7 +29,6 @@ class PointNet2SemSegSSG(PointNet2ClassificationSSG):
                 use_xyz=self.hparams["model.use_xyz"],
             )
         )
-        
         self.SA_modules.append(
             PointnetSAModule(
                 npoint=64,
@@ -48,20 +47,34 @@ class PointNet2SemSegSSG(PointNet2ClassificationSSG):
                 use_xyz=self.hparams["model.use_xyz"],
             )
         )
-        
-        # self.FP_modules = nn.ModuleList()
-        # self.FP_modules.append(PointnetFPModule(mlp=[128 , 128, 128, 128]))
-        # self.FP_modules.append(PointnetFPModule(mlp=[256 + 64, 256, 128]))
-        # self.FP_modules.append(PointnetFPModule(mlp=[256 + 128, 256, 256]))
-        # self.FP_modules.append(PointnetFPModule(mlp=[512 + 256, 256, 256]))
 
         self.fc_layer = nn.Sequential(
-            nn.Conv1d(512, 256, kernel_size=1, bias=False),
-            nn.BatchNorm1d(256),
+            nn.Conv1d(512, 128, kernel_size=1, bias=False),
+            nn.BatchNorm1d(128),
             nn.ReLU(True),
             nn.Dropout(0.5),
-            nn.Conv1d(256, 16, kernel_size=1),
+            nn.Conv1d(128, 16, kernel_size=1),
         )
+
+        '''
+        # for decoder : 
+        
+        self.FP_modules = nn.ModuleList()
+        self.FP_modules.append(PointnetFPModule(mlp=[128 + self.hparams["feature_num"], 128, 128, 128]))
+        self.FP_modules.append(PointnetFPModule(mlp=[256 + 64, 256, 128]))
+        self.FP_modules.append(PointnetFPModule(mlp=[256 + 128, 256, 256]))
+        self.FP_modules.append(PointnetFPModule(mlp=[512 + 256, 256, 256]))
+
+        
+        self.fc_layer = nn.Sequential(
+            nn.Conv1d(128, 128, kernel_size=1, bias=False),
+            nn.BatchNorm1d(128),
+            nn.ReLU(True),
+            nn.Dropout(0.5),
+            nn.Conv1d(128, 13, kernel_size=1),
+        )
+        '''
+
 
     def forward(self, pointcloud):
         r"""
@@ -75,13 +88,38 @@ class PointNet2SemSegSSG(PointNet2ClassificationSSG):
                 Each point in the point-cloud MUST
                 be formated as (x, y, z, features...)
         """
-        
+  
         xyz, features = self._break_up_pc(pointcloud)
+
+        # for model in self.SA_modules:
+        #     xyz, features = model(xyz, features)
+
+        # print(self.fc_layer(features).shape)
+        # return self.fc_layer(features)
     
-        for module in self.SA_modules:
+
+    
+        l_xyz, l_features = [xyz], [features]
+        for i in range(len(self.SA_modules)):
+            li_xyz, li_features = self.SA_modules[i](l_xyz[i], l_features[i])
+            l_xyz.append(li_xyz)
+            l_features.append(li_features)
             
-            xyz, features = module(xyz, features)
-       
         
-        #return features
-        return self.fc_layer(features)
+        return self.fc_layer(l_features[-1])
+
+
+        # for decode 
+        
+        # l_xyz, l_features = [xyz], [features]
+        # for i in range(len(self.SA_modules)):
+        #     li_xyz, li_features = self.SA_modules[i](l_xyz[i], l_features[i])
+        #     l_xyz.append(li_xyz)
+        #     l_features.append(li_features)
+
+        # for i in range(-1, -(len(self.FP_modules) + 1), -1):
+        #     l_features[i - 1] = self.FP_modules[i](
+        #         l_xyz[i - 1], l_xyz[i], l_features[i - 1], l_features[i]
+        #     )
+
+        # return self.fc_layer(l_features[0])
